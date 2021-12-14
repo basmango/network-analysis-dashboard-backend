@@ -3,9 +3,12 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# nginx/uswgi
+*.sock
 # C extensions
 *.so
-
+# vim swp
+*.swp
 # Distribution / packaging
 .Python
 build/

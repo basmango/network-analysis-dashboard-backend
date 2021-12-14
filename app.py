@@ -6,7 +6,7 @@ import seaborn as sns
 from flask_cors import CORS
 app = Flask(__name__)
 
-app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://postgres@localhost:5432'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://postgres@localhost:5432/postgres'
 
 db = SQLAlchemy(app)
 
@@ -14,10 +14,7 @@ cors = CORS(app, resources={r"*": {"origins": "*"}})
 
 @app.route("/")
 def root():
-    result = db.session.execute('SELECT * FROM stops')
-    result  = list(dict(i) for i in result.all())
-    return jsonify(json_list = result)
-
+    return "<h1 style='color:blue'>Hello There!</h1>"
 
 @app.route("/routes")
 def routes():
