@@ -124,14 +124,62 @@ def stop_bar_data():
     pallete = sns.color_palette(None,color_count)
     for j,color in zip(route_dic_onboarding.keys(),pallete.as_hex()):
         onboarding_dic['datasets'] += [{'backgroundColor':color,'stack':1,'label':j,'data':[int(route_dic_onboarding[j][i]) if i in route_dic_onboarding[j].keys() else 0 for i in onboarding_stop_set]}]
-    for j in route_dic_eliding.keys():
-        eliding_dic['datasets'] += [{'stack':1,'label':j,'data':[int(route_dic_eliding[j][i]) if i in route_dic_eliding[j].keys() else 0 for i in eliding_stop_set]}]
+    color_count = len(route_dic_eliding.keys())
+    pallete = sns.color_palette(None,color_count)
+    for j,color in zip(route_dic_eliding.keys(),pallete.as_hex()):
+        eliding_dic['datasets'] += [{'backgroundColor':color,'stack':1,'label':j,'data':[int(route_dic_eliding[j][i]) if i in route_dic_eliding[j].keys() else 0 for i in eliding_stop_set]}]
     
         
     # prepare json arrays as needed by chartjs
     
     
+   
+    final_dict = {'arrivals':onboarding_dic,'departures':eliding_dic}    
+    return jsonify(final_dict)
+
+
+@app.route("/stopsunburst")
+def stop_sun_data():
+    # need to get data, 
+    
+    stop   = request.args.get("stop")
+    
+    # query database for tuple stats <stop,route,onboarding/eliding/count>
+    #prepare onboarding/eliding array and prepare toggle on frontend
+    
+    text1= text("Select route_long_name,user_start_stop_name,user_end_stop_name,SUM(ticket_count) from tickets where (user_start_stop_name = :stop or user_end_stop_name = :stop)  group by user_start_stop_name,user_end_stop_name,route_long_name order by route_long_name; ")
+    
+    onboarding_dic = {}
+    eliding_dic = {}
+    onboarding_route_set = set()
+    eliding_route_set = set()
+    result  = db.session.execute(text1,{'stop':stop})
+    #iterate,populate route dic with tuple of stop,onboarding and eliding.
+    onboarding_return_dic = {'name':'Onboarding',
+                        'children':[]
+                      }
+    eliding_return_dic ={'name':'Eliding',
+                        'children':[]
+                      }
+    for row in result:
+        if row.user_start_stop_name == stop:
+            onboarding_route_set.add(row.route_long_name)
+            if (row.route_long_name in onboarding_dic.keys()):
+                    onboarding_dic[row.route_long_name]+=1
+            else:
+                    onboarding_dic[row.route_long_name]=1
+        else:    
+            eliding_route_set.add(row.route_long_name)
+            if (row.route_long_name in eliding_dic.keys()):
+                    eliding_dic[row.route_long_name]+=1
+            else:
+                    eliding_dic[row.route_long_name]=1
+  
+    onboarding_return_dic['children'] = [{'name':i,'value':onboarding_dic[i]} for i in onboarding_route_set]
+    eliding_return_dic['children'] = [{'name':i,'value':eliding_dic[i]} for i in eliding_route_set]
         
-    final_dict = {'onboarding':onboarding_dic,'eliding':eliding_dic}    
+        
+   
+    final_dict ={'name':'root','children':[onboarding_return_dic,eliding_return_dic]}   
     return jsonify(final_dict)
 
