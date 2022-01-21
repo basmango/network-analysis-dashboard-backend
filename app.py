@@ -4,6 +4,7 @@ from sqlalchemy.sql import text
 import json
 import seaborn as sns
 from flask_cors import CORS
+from datetime import datetime
 app = Flask(__name__)
 
 app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://postgres@localhost:5432/postgres'
@@ -18,9 +19,17 @@ def root():
 
 @app.route("/routes")
 def routes():
-    result = db.session.execute('select route_long_name from routes;')
+    result = db.session.execute('select route_long_name from routes order by route_long_name;')
     result  = list(dict(i) for i in result.all())
     return jsonify(json_list = result)
+
+
+@app.route("/dates")
+def fetch_dates():
+    result = db.session.execute('Select (max(booking_time)) from tickets')
+    res = list(result)[0].max
+    print(res)
+    return jsonify(max_date = res)
 
 
 @app.route("/stops")
@@ -39,16 +48,18 @@ def stops():
 @app.route("/chartdata")
 def chart_data():
     route  =request.args.get("route")
-    text1= text("Select user_start_stop_name,SUM(ticket_count) from tickets where route_long_name =  :route group by user_start_stop_name;")
-    text2= text("Select user_end_stop_name,SUM(ticket_count) from tickets where route_long_name =  :route group by user_end_stop_name;")
-    stops_query = text("Select DISTINCT(stop_name,stop_sequence),stop_name,stop_sequence from route_stop_mapping  where route_long_name  =  :route order by stop_sequence;  ")
+    startingDate = request.args.get('startingDate')
+    endingDate = request.args.get('endingDate')
+    text1= text("Select user_start_stop_name,SUM(ticket_count) from tickets where route_long_name =  :route  and booking_time between :startdate and :enddate group by user_start_stop_name ;")
+    text2= text("Select user_end_stop_name,SUM(ticket_count) from tickets where route_long_name =  :route and booking_time between :startdate and :enddate group by user_end_stop_name;")
+    stops_query = text("Select DISTINCT(stop_name,stop_sequence),stop_name,stop_sequence from route_stop_mapping  where route_long_name  =  :route  order by stop_sequence;  ")
     dic_onboarding = {}
     dic_eliding = {}
     
     
     
-    onboarding = db.session.execute(text1,{'route':route})
-    eliding = db.session.execute(text2,{'route' :route})
+    onboarding = db.session.execute(text1,{'route':route,'startdate':startingDate,'enddate':endingDate})
+    eliding = db.session.execute(text2,{'route' :route,'startdate':startingDate,'enddate':endingDate})
     stops  = db.session.execute(stops_query,{'route':route})
     #stops  = list(dict(i) for i in stops.all())
     for i in onboarding:
@@ -82,11 +93,12 @@ def stop_bar_data():
     # need to get data, 
     
     stop   = request.args.get("stop")
-    
+    startingDate = request.args.get("startingDate")
+    endingDate = request.args.get("endingDate")
     # query database for tuple stats <stop,route,onboarding/eliding/count>
     #prepare onboarding/eliding array and prepare toggle on frontend
     
-    text1= text("Select route_long_name,user_start_stop_name,user_end_stop_name,SUM(ticket_count) from tickets where (user_start_stop_name = :stop or user_end_stop_name = :stop)  group by user_start_stop_name,user_end_stop_name,route_long_name order by route_long_name; ")
+    text1= text("Select route_long_name,user_start_stop_name,user_end_stop_name,SUM(ticket_count) from tickets where (user_start_stop_name = :stop or user_end_stop_name = :stop) and booking_time between :startingDate and :endingDate  group by user_start_stop_name,user_end_stop_name,route_long_name order by route_long_name; ")
     
     onboarding_stops = []
     eliding_stops = []
@@ -96,38 +108,55 @@ def stop_bar_data():
     route_dic_eliding = {}
     onboarding_stop_set = set()
     eliding_stop_set = set()
-    result  = db.session.execute(text1,{'stop':stop})
+    onboarding_stop_count = {}
+    eliding_stop_count = {}
+    
+    result  = db.session.execute(text1,{'stop':stop,'startingDate':startingDate,'endingDate':endingDate})
     #iterate,populate route dic with tuple of stop,onboarding and eliding.
      
     # collect layer for all s
     for row in result:
         if row.user_start_stop_name == stop:
             eliding_stop_set.add(row.user_end_stop_name)
+            if row.user_end_stop_name not in eliding_stop_count.keys():  
+                    eliding_stop_count[row.user_end_stop_name] = row.sum
+            else:
+                    eliding_stop_count[row.user_end_stop_name] += row.sum    
             if row.route_long_name not in route_dic_eliding.keys():
                 route_dic_eliding[row.route_long_name] = {row.user_end_stop_name: row.sum}
+                    
             else:
                 route_dic_eliding[row.route_long_name][row.user_end_stop_name]=row.sum
         else:    
             onboarding_stop_set.add(row.user_start_stop_name)
+            if row.user_start_stop_name not in onboarding_stop_count.keys():  
+                    onboarding_stop_count[row.user_start_stop_name] = row.sum
+            else:
+                    onboarding_stop_count[row.user_start_stop_name] += row.sum    
+            
             if row.route_long_name not in route_dic_onboarding.keys():
                 route_dic_onboarding[row.route_long_name] = {row.user_start_stop_name:row.sum}
             else:
                 route_dic_onboarding[row.route_long_name][row.user_start_stop_name]=row.sum
     
-    onboarding_dic = {'labels':list(onboarding_stop_set),
+    limited_onboarding_labels = sorted(list(onboarding_stop_set),key = lambda x : -onboarding_stop_count[x])[:min(len(onboarding_stop_set),20)]
+    limited_eliding_labels = sorted(list(eliding_stop_set),key = lambda x : -eliding_stop_count[x])[:min(len(eliding_stop_set),20)]
+    limited_onboarding_labels = [i for i in limited_onboarding_labels if onboarding_stop_count[i] > 0 ]
+    limited_eliding_labels = [i for i in limited_eliding_labels if eliding_stop_count[i] > 0 ]
+    onboarding_dic = {'labels':limited_onboarding_labels,
                         'datasets':[]
                       }
-    eliding_dic ={'labels':list(eliding_stop_set),
+    eliding_dic ={'labels':limited_eliding_labels,
                         'datasets':[]
                       }
     color_count = len(route_dic_onboarding.keys())
     pallete = sns.color_palette(None,color_count)
     for j,color in zip(route_dic_onboarding.keys(),pallete.as_hex()):
-        onboarding_dic['datasets'] += [{'backgroundColor':color,'stack':1,'label':j,'data':[int(route_dic_onboarding[j][i]) if i in route_dic_onboarding[j].keys() else 0 for i in onboarding_stop_set]}]
+        onboarding_dic['datasets'] += [{'backgroundColor':color,'stack':1,'label':j,'data':[int(route_dic_onboarding[j][i]) if i in route_dic_onboarding[j].keys() else 0 for i in limited_onboarding_labels]}]
     color_count = len(route_dic_eliding.keys())
     pallete = sns.color_palette(None,color_count)
     for j,color in zip(route_dic_eliding.keys(),pallete.as_hex()):
-        eliding_dic['datasets'] += [{'backgroundColor':color,'stack':1,'label':j,'data':[int(route_dic_eliding[j][i]) if i in route_dic_eliding[j].keys() else 0 for i in eliding_stop_set]}]
+        eliding_dic['datasets'] += [{'backgroundColor':color,'stack':1,'label':j,'data':[int(route_dic_eliding[j][i]) if i in route_dic_eliding[j].keys() else 0 for i in limited_eliding_labels]}]
     
         
     # prepare json arrays as needed by chartjs
@@ -138,48 +167,158 @@ def stop_bar_data():
     return jsonify(final_dict)
 
 
-@app.route("/stopsunburst")
-def stop_sun_data():
+
+
+
+@app.route("/stop-pie")
+def stop_net_pie():
     # need to get data, 
     
     stop   = request.args.get("stop")
-    
+    startingDate = request.args.get("startingDate")
+    endingDate = request.args.get("endingDate")
     # query database for tuple stats <stop,route,onboarding/eliding/count>
     #prepare onboarding/eliding array and prepare toggle on frontend
     
-    text1= text("Select route_long_name,user_start_stop_name,user_end_stop_name,SUM(ticket_count) from tickets where (user_start_stop_name = :stop or user_end_stop_name = :stop)  group by user_start_stop_name,user_end_stop_name,route_long_name order by route_long_name; ")
+    text1= text("Select user_start_stop_name,user_end_stop_name,SUM(ticket_count) from tickets where (user_start_stop_name = :stop or user_end_stop_name = :stop) and booking_time between :startingDate and :endingDate group by user_start_stop_name,user_end_stop_name  ")
     
-    onboarding_dic = {}
-    eliding_dic = {}
-    onboarding_route_set = set()
-    eliding_route_set = set()
-    result  = db.session.execute(text1,{'stop':stop})
-    #iterate,populate route dic with tuple of stop,onboarding and eliding.
-    onboarding_return_dic = {'name':'Onboarding',
-                        'children':[]
-                      }
-    eliding_return_dic ={'name':'Eliding',
-                        'children':[]
-                      }
+    onboarding_count = eliding_count = 0;
+    
+    result  = db.session.execute(text1,{'stop':stop,'startingDate':startingDate,'endingDate':endingDate})
+    
+    
     for row in result:
-        if row.user_start_stop_name == stop:
-            onboarding_route_set.add(row.route_long_name)
-            if (row.route_long_name in onboarding_dic.keys()):
-                    onboarding_dic[row.route_long_name]+=1
-            else:
-                    onboarding_dic[row.route_long_name]=1
-        else:    
-            eliding_route_set.add(row.route_long_name)
-            if (row.route_long_name in eliding_dic.keys()):
-                    eliding_dic[row.route_long_name]+=1
-            else:
-                    eliding_dic[row.route_long_name]=1
-  
-    onboarding_return_dic['children'] = [{'name':i,'value':onboarding_dic[i]} for i in onboarding_route_set]
-    eliding_return_dic['children'] = [{'name':i,'value':eliding_dic[i]} for i in eliding_route_set]
-        
-        
-   
-    final_dict ={'name':'root','children':[onboarding_return_dic,eliding_return_dic]}   
-    return jsonify(final_dict)
+        if row.user_start_stop_name == stop: 
+            onboarding_count+=row.sum    
+        else:
+            eliding_count+=row.sum
+            
+    data = {
+        'labels': ["Departures","Arrivals"],
+         'datasets':[{
+             'label':'Onboarding-Eliding Chart',
+             'data': [onboarding_count,eliding_count],
+             'backgroundColor': [ 'rgba(255, 99, 132,1)',
+                 'rgba(54, 162, 235, 1)']
+         }]
+         ,
+            
+    }
+    
+    return jsonify(data)
 
+
+
+@app.route("/stop-onboarding-donut")
+def stop_onboarding_donut():
+    # need to get data, 
+    
+    stop   = request.args.get("stop")
+    startingDate = request.args.get("startingDate")
+    endingDate = request.args.get("endingDate")
+    # query database for tuple stats <stop,route,onboarding/eliding/count>
+    #prepare onboarding/eliding array and prepare toggle on frontend
+    
+    dic_route_count = {}
+    
+    text1= text("Select route_long_name,SUM(ticket_count) as count from tickets where (user_start_stop_name = :stop ) and booking_time between :startingDate and :endingDate  group by route_long_name order by count ;  ")
+    
+    
+    
+    result  = db.session.execute(text1,{'stop':stop,'startingDate':startingDate,'endingDate':endingDate})
+    
+    dic_onboarding_route_count = {}
+    labels_arr = []
+    counts_arr =  []
+    
+    for row in result:
+        labels_arr += [row.route_long_name]
+        counts_arr += [row.count]
+    
+    pallete = sns.color_palette(None,len(labels_arr))
+    
+    data = {
+        'labels': labels_arr,
+         'datasets':[{
+             'label':'Onboarding-Routes Chart',
+             'data': counts_arr,
+             'backgroundColor': list(pallete.as_hex())
+         }]
+         ,
+            
+    }
+    
+    return jsonify(data)
+
+@app.route("/stop-hourly-distribution")
+def stop_hour_line():
+    stop  = request.args.get("stop")
+    startingDate = request.args.get("startingDate")
+    endingDate = request.args.get("endingDate")
+    txt1 =text("select date_part('hour',booking_time),SUM(ticket_count) as count from tickets where user_end_stop_name = :stop  and booking_time between :startingDate and :endingDate  group BY date_part('hour',booking_time);")
+    result1  = db.session.execute(txt1,{'stop':stop,'startingDate':startingDate,'endingDate':endingDate})
+    txt2 =text("select date_part('hour',booking_time),SUM(ticket_count) as count from tickets where user_start_stop_name = :stop  and booking_time between :startingDate and :endingDate  group BY date_part('hour',booking_time);")
+    result2  = db.session.execute(txt2,{'stop':stop,'startingDate':startingDate,'endingDate':endingDate})
+    labels =  [f"{i}:00" for i in range(0,25)]
+    
+
+
+    dict_arrivals = {}
+    dict_departures = {}
+    
+    for row in result1:
+        dict_arrivals[f"{round(row.date_part)}:00"] = row.count
+
+    for row in result2:
+        dict_departures[f"{round(row.date_part)}:00"] = row.count
+        
+    arrivals = [dict_arrivals[i] if i in dict_arrivals.keys() else 0 for i in labels ]
+    
+    departures = [dict_departures[i] if i in dict_departures.keys() else 0 for i in labels ]
+
+
+    return jsonify(labels = labels,arrivals=arrivals,departures = departures)
+
+@app.route("/stop-eliding-donut")
+def stop_eliding_donut():
+    # need to get data, 
+    
+    stop  = request.args.get("stop")
+    startingDate = request.args.get("startingDate")
+    endingDate = request.args.get("endingDate")
+    # query database for tuple stats <stop,route,onboarding/eliding/count>
+    #prepare onboarding/eliding array and prepare toggle on frontend
+    
+    dic_route_count = {}
+    
+    text1= text("Select route_long_name,SUM(ticket_count) as count from tickets where (user_end_stop_name = :stop ) and booking_time between :startingDate and :endingDate  group by route_long_name order by count ;  ")
+    
+    
+    
+    result  = db.session.execute(text1,{'stop':stop,'startingDate':startingDate,'endingDate':endingDate})
+    
+    dic_eliding_route_count = {}
+    labels_arr = []
+    counts_arr =  []
+    
+    for row in result:
+        labels_arr += [row.route_long_name]
+        counts_arr += [row.count]
+    
+    pallete = sns.color_palette(None,len(labels_arr))
+    
+    data = {
+        'labels': labels_arr,
+         'datasets':[{
+             'label':'Eliding-Routes Chart',
+             'data': counts_arr,
+             'backgroundColor': list(pallete.as_hex())
+         }]
+         ,
+            
+    }
+    
+    return jsonify(data)
+
+
+    
