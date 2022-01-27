@@ -199,7 +199,7 @@ def stop_net_pie():
              'label':'Onboarding-Eliding Chart',
              'data': [onboarding_count,eliding_count],
              'backgroundColor': [ 'rgba(255, 22, 22,1)',
-                 'rgba(22, 22, 225, 1)']
+                 'rgba(22, 22, 100, 1)']
          }]
          ,
             
