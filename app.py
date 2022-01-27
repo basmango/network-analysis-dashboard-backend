@@ -198,8 +198,8 @@ def stop_net_pie():
          'datasets':[{
              'label':'Onboarding-Eliding Chart',
              'data': [onboarding_count,eliding_count],
-             'backgroundColor': [ 'rgba(255, 99, 132,1)',
-                 'rgba(54, 162, 235, 1)']
+             'backgroundColor': [ 'rgba(255, 22, 22,1)',
+                 'rgba(22, 22, 225, 1)']
          }]
          ,
             
