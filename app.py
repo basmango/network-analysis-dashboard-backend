@@ -98,7 +98,7 @@ def stop_bar_data():
     # query database for tuple stats <stop,route,onboarding/eliding/count>
     #prepare onboarding/eliding array and prepare toggle on frontend
     
-    text1= text("Select route_long_name,user_start_stop_name,user_end_stop_name,SUM(ticket_count) from tickets where (user_start_stop_name = :stop or user_end_stop_name = :stop) and booking_time between :startingDate and :endingDate  group by user_start_stop_name,user_end_stop_name,route_long_name order by route_long_name; ")
+    text1= text("Select route_long_name,user_start_stop_name,user_end_stop_name,SUM(ticket_count) from tickets where (user_start_stop_name = :stop or user_end_stop_name = :stop and user_start_stop_name!= '' and user_end_stop_name!='') and booking_time between :startingDate and :endingDate  group by user_start_stop_name,user_end_stop_name,route_long_name order by route_long_name; ")
     
     onboarding_stops = []
     eliding_stops = []
